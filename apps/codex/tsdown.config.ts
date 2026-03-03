@@ -1,10 +1,10 @@
 import { defineConfig } from 'tsdown';
-import Macros from 'unplugin-macros/rolldown';
 
 export default defineConfig({
 	entry: ['src/index.ts'],
 	outDir: 'dist',
 	format: 'esm',
+	target: 'node16',
 	clean: true,
 	sourcemap: false,
 	minify: 'dce-only',
@@ -14,11 +14,6 @@ export default defineConfig({
 	unused: true,
 	fixedExtension: false,
 	nodeProtocol: true,
-	plugins: [
-		Macros({
-			include: ['src/index.ts', 'src/pricing.ts'],
-		}),
-	],
 	define: {
 		'import.meta.vitest': 'undefined',
 	},

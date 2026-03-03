@@ -1,4 +1,4 @@
-import type { Args } from 'gunshi';
+import type { Args } from './mini-cli.ts';
 import { DEFAULT_LOCALE, DEFAULT_TIMEZONE } from './_consts.ts';
 
 export const sharedArgs = {

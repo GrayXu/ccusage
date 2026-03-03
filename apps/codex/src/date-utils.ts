@@ -21,7 +21,11 @@ export function toDateKey(timestamp: string, timezone?: string): string {
 		day: '2-digit',
 		timeZone: tz,
 	});
-	return formatter.format(date);
+	const parts = formatter.formatToParts(date);
+	const year = parts.find((part) => part.type === 'year')?.value ?? '0000';
+	const month = parts.find((part) => part.type === 'month')?.value ?? '01';
+	const day = parts.find((part) => part.type === 'day')?.value ?? '01';
+	return `${year}-${month}-${day}`;
 }
 
 export function normalizeFilterDate(value?: string): string | undefined {
@@ -78,7 +82,9 @@ export function toMonthKey(timestamp: string, timezone?: string): string {
 		month: '2-digit',
 		timeZone: tz,
 	});
-	const [year, month] = formatter.format(date).split('-');
+	const parts = formatter.formatToParts(date);
+	const year = parts.find((part) => part.type === 'year')?.value ?? '0000';
+	const month = parts.find((part) => part.type === 'month')?.value ?? '01';
 	return `${year}-${month}`;
 }
 

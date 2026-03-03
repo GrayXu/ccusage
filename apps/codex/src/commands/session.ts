@@ -7,7 +7,6 @@ import {
 	formatNumber,
 	ResponsiveTable,
 } from '@ccusage/terminal/table';
-import { define } from 'gunshi';
 import pc from 'picocolors';
 import { DEFAULT_TIMEZONE } from '../_consts.ts';
 import { sharedArgs } from '../_shared-args.ts';
@@ -20,6 +19,7 @@ import {
 	toDateKey,
 } from '../date-utils.ts';
 import { log, logger } from '../logger.ts';
+import { define } from '../mini-cli.ts';
 import { CodexPricingSource } from '../pricing.ts';
 import { buildSessionReport } from '../session-report.ts';
 
@@ -216,7 +216,7 @@ export const sessionCommand = define({
 				);
 			}
 		} finally {
-			pricingSource[Symbol.dispose]();
+			pricingSource.dispose();
 		}
 	},
 });

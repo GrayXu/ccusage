@@ -7,7 +7,6 @@ import {
 	formatNumber,
 	ResponsiveTable,
 } from '@ccusage/terminal/table';
-import { define } from 'gunshi';
 import pc from 'picocolors';
 import { DEFAULT_TIMEZONE } from '../_consts.ts';
 import { sharedArgs } from '../_shared-args.ts';
@@ -15,6 +14,7 @@ import { formatModelsList, splitUsageTokens } from '../command-utils.ts';
 import { loadTokenUsageEvents } from '../data-loader.ts';
 import { normalizeFilterDate } from '../date-utils.ts';
 import { log, logger } from '../logger.ts';
+import { define } from '../mini-cli.ts';
 import { buildMonthlyReport } from '../monthly-report.ts';
 import { CodexPricingSource } from '../pricing.ts';
 
@@ -182,7 +182,7 @@ export const monthlyCommand = define({
 				logger.info('Expand terminal width to see cache metrics and total tokens');
 			}
 		} finally {
-			pricingSource[Symbol.dispose]();
+			pricingSource.dispose();
 		}
 	},
 });

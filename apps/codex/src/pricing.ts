@@ -3,7 +3,7 @@ import type { ModelPricing, PricingSource } from './_types.ts';
 import { LiteLLMPricingFetcher } from '@ccusage/internal/pricing';
 import { Result } from '@praha/byethrow';
 import { MILLION } from './_consts.ts';
-import { prefetchCodexPricing } from './_macro.ts' with { type: 'macro' };
+import { prefetchCodexPricing } from './_macro.ts';
 import { logger } from './logger.ts';
 
 const CODEX_PROVIDER_PREFIXES = ['openai/', 'azure/', 'openrouter/openai/'];
@@ -44,7 +44,14 @@ export type CodexPricingSourceOptions = {
 	offlineLoader?: () => Promise<Record<string, LiteLLMModelPricing>>;
 };
 
-const PREFETCHED_CODEX_PRICING = prefetchCodexPricing();
+let prefetchedCodexPricingPromise: Promise<Record<string, LiteLLMModelPricing>> | null = null;
+
+function getPrefetchedCodexPricing(): Promise<Record<string, LiteLLMModelPricing>> {
+	if (prefetchedCodexPricingPromise == null) {
+		prefetchedCodexPricingPromise = prefetchCodexPricing();
+	}
+	return prefetchedCodexPricingPromise;
+}
 
 export class CodexPricingSource implements PricingSource, Disposable {
 	private readonly fetcher: LiteLLMPricingFetcher;
@@ -52,14 +59,18 @@ export class CodexPricingSource implements PricingSource, Disposable {
 	constructor(options: CodexPricingSourceOptions = {}) {
 		this.fetcher = new LiteLLMPricingFetcher({
 			offline: options.offline ?? false,
-			offlineLoader: options.offlineLoader ?? (async () => PREFETCHED_CODEX_PRICING),
+			offlineLoader: options.offlineLoader ?? (async () => getPrefetchedCodexPricing()),
 			logger,
 			providerPrefixes: CODEX_PROVIDER_PREFIXES,
 		});
 	}
 
+	dispose(): void {
+		this.fetcher.clearCache();
+	}
+
 	[Symbol.dispose](): void {
-		this.fetcher[Symbol.dispose]();
+		this.dispose();
 	}
 
 	async getPricing(model: string): Promise<ModelPricing> {

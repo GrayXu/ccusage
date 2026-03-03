@@ -1,3 +1,16 @@
+```bash
+# Node16 quick flow
+TARGET=ccusage          # or: opencode / codex
+BRANCH="${TARGET}-node16"
+APP="apps/${TARGET}"
+CMD="daily --json"      # e.g. monthly/session/weekly/blocks
+
+git switch "$BRANCH"
+cd "$APP"
+npx -y esbuild@0.20.2 src/index.ts --bundle --platform=node --format=esm --target=node16 --outfile=dist/index.js
+node dist/index.js $CMD
+```
+
 <div align="center">
     <img src="https://cdn.jsdelivr.net/gh/ryoppippi/ccusage@main/docs/public/logo.svg" alt="ccusage logo" width="256" height="256">
     <h1>ccusage</h1>
