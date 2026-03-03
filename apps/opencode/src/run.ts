@@ -1,7 +1,7 @@
 import process from 'node:process';
-import { cli } from 'gunshi';
 import { description, name, version } from '../package.json';
 import { dailyCommand, monthlyCommand, sessionCommand, weeklyCommand } from './commands/index.ts';
+import { cli } from './mini-cli.ts';
 
 const subCommands = new Map([
 	['daily', dailyCommand],
@@ -25,6 +25,5 @@ export async function run(): Promise<void> {
 		version,
 		description,
 		subCommands,
-		renderHeader: null,
 	});
 }

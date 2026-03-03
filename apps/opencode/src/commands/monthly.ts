@@ -8,11 +8,11 @@ import {
 	ResponsiveTable,
 } from '@ccusage/terminal/table';
 import { groupBy } from 'es-toolkit';
-import { define } from 'gunshi';
 import pc from 'picocolors';
 import { calculateCostForEntry } from '../cost-utils.ts';
 import { loadOpenCodeMessages } from '../data-loader.ts';
 import { logger } from '../logger.ts';
+import { define } from '../mini-cli.ts';
 
 const TABLE_COLUMN_COUNT = 8;
 
@@ -44,134 +44,138 @@ export const monthlyCommand = define({
 			return;
 		}
 
-		using fetcher = new LiteLLMPricingFetcher({ offline: false, logger });
+		const fetcher = new LiteLLMPricingFetcher({ offline: false, logger });
 
-		const entriesByMonth = groupBy(entries, (entry) => entry.timestamp.toISOString().slice(0, 7));
+		try {
+			const entriesByMonth = groupBy(entries, (entry) => entry.timestamp.toISOString().slice(0, 7));
 
-		const monthlyData: Array<{
-			month: string;
-			inputTokens: number;
-			outputTokens: number;
-			cacheCreationTokens: number;
-			cacheReadTokens: number;
-			totalTokens: number;
-			totalCost: number;
-			modelsUsed: string[];
-		}> = [];
+			const monthlyData: Array<{
+				month: string;
+				inputTokens: number;
+				outputTokens: number;
+				cacheCreationTokens: number;
+				cacheReadTokens: number;
+				totalTokens: number;
+				totalCost: number;
+				modelsUsed: string[];
+			}> = [];
 
-		for (const [month, monthEntries] of Object.entries(entriesByMonth)) {
-			let inputTokens = 0;
-			let outputTokens = 0;
-			let cacheCreationTokens = 0;
-			let cacheReadTokens = 0;
-			let totalCost = 0;
-			const modelsSet = new Set<string>();
+			for (const [month, monthEntries] of Object.entries(entriesByMonth)) {
+				let inputTokens = 0;
+				let outputTokens = 0;
+				let cacheCreationTokens = 0;
+				let cacheReadTokens = 0;
+				let totalCost = 0;
+				const modelsSet = new Set<string>();
 
-			for (const entry of monthEntries) {
-				inputTokens += entry.usage.inputTokens;
-				outputTokens += entry.usage.outputTokens;
-				cacheCreationTokens += entry.usage.cacheCreationInputTokens;
-				cacheReadTokens += entry.usage.cacheReadInputTokens;
-				totalCost += await calculateCostForEntry(entry, fetcher);
-				modelsSet.add(entry.model);
+				for (const entry of monthEntries) {
+					inputTokens += entry.usage.inputTokens;
+					outputTokens += entry.usage.outputTokens;
+					cacheCreationTokens += entry.usage.cacheCreationInputTokens;
+					cacheReadTokens += entry.usage.cacheReadInputTokens;
+					totalCost += await calculateCostForEntry(entry, fetcher);
+					modelsSet.add(entry.model);
+				}
+
+				const totalTokens = inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens;
+
+				monthlyData.push({
+					month,
+					inputTokens,
+					outputTokens,
+					cacheCreationTokens,
+					cacheReadTokens,
+					totalTokens,
+					totalCost,
+					modelsUsed: Array.from(modelsSet),
+				});
 			}
 
-			const totalTokens = inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens;
+			monthlyData.sort((a, b) => a.month.localeCompare(b.month));
 
-			monthlyData.push({
-				month,
-				inputTokens,
-				outputTokens,
-				cacheCreationTokens,
-				cacheReadTokens,
-				totalTokens,
-				totalCost,
-				modelsUsed: Array.from(modelsSet),
+			const totals = {
+				inputTokens: monthlyData.reduce((sum, d) => sum + d.inputTokens, 0),
+				outputTokens: monthlyData.reduce((sum, d) => sum + d.outputTokens, 0),
+				cacheCreationTokens: monthlyData.reduce((sum, d) => sum + d.cacheCreationTokens, 0),
+				cacheReadTokens: monthlyData.reduce((sum, d) => sum + d.cacheReadTokens, 0),
+				totalTokens: monthlyData.reduce((sum, d) => sum + d.totalTokens, 0),
+				totalCost: monthlyData.reduce((sum, d) => sum + d.totalCost, 0),
+			};
+
+			if (jsonOutput) {
+				// eslint-disable-next-line no-console
+				console.log(
+					JSON.stringify(
+						{
+							monthly: monthlyData,
+							totals,
+						},
+						null,
+						2,
+					),
+				);
+				return;
+			}
+
+			// eslint-disable-next-line no-console
+			console.log('\n📊 OpenCode Token Usage Report - Monthly\n');
+
+			const table: ResponsiveTable = new ResponsiveTable({
+				head: [
+					'Month',
+					'Models',
+					'Input',
+					'Output',
+					'Cache Create',
+					'Cache Read',
+					'Total Tokens',
+					'Cost (USD)',
+				],
+				colAligns: ['left', 'left', 'right', 'right', 'right', 'right', 'right', 'right'],
+				compactHead: ['Month', 'Models', 'Input', 'Output', 'Cost (USD)'],
+				compactColAligns: ['left', 'left', 'right', 'right', 'right'],
+				compactThreshold: 100,
+				forceCompact: Boolean(ctx.values.compact),
+				style: { head: ['cyan'] },
+				dateFormatter: (dateStr: string) => formatDateCompact(dateStr),
 			});
-		}
 
-		monthlyData.sort((a, b) => a.month.localeCompare(b.month));
+			for (const data of monthlyData) {
+				table.push([
+					data.month,
+					formatModelsDisplayMultiline(data.modelsUsed),
+					formatNumber(data.inputTokens),
+					formatNumber(data.outputTokens),
+					formatNumber(data.cacheCreationTokens),
+					formatNumber(data.cacheReadTokens),
+					formatNumber(data.totalTokens),
+					formatCurrency(data.totalCost),
+				]);
+			}
 
-		const totals = {
-			inputTokens: monthlyData.reduce((sum, d) => sum + d.inputTokens, 0),
-			outputTokens: monthlyData.reduce((sum, d) => sum + d.outputTokens, 0),
-			cacheCreationTokens: monthlyData.reduce((sum, d) => sum + d.cacheCreationTokens, 0),
-			cacheReadTokens: monthlyData.reduce((sum, d) => sum + d.cacheReadTokens, 0),
-			totalTokens: monthlyData.reduce((sum, d) => sum + d.totalTokens, 0),
-			totalCost: monthlyData.reduce((sum, d) => sum + d.totalCost, 0),
-		};
-
-		if (jsonOutput) {
-			// eslint-disable-next-line no-console
-			console.log(
-				JSON.stringify(
-					{
-						monthly: monthlyData,
-						totals,
-					},
-					null,
-					2,
-				),
-			);
-			return;
-		}
-
-		// eslint-disable-next-line no-console
-		console.log('\n📊 OpenCode Token Usage Report - Monthly\n');
-
-		const table: ResponsiveTable = new ResponsiveTable({
-			head: [
-				'Month',
-				'Models',
-				'Input',
-				'Output',
-				'Cache Create',
-				'Cache Read',
-				'Total Tokens',
-				'Cost (USD)',
-			],
-			colAligns: ['left', 'left', 'right', 'right', 'right', 'right', 'right', 'right'],
-			compactHead: ['Month', 'Models', 'Input', 'Output', 'Cost (USD)'],
-			compactColAligns: ['left', 'left', 'right', 'right', 'right'],
-			compactThreshold: 100,
-			forceCompact: Boolean(ctx.values.compact),
-			style: { head: ['cyan'] },
-			dateFormatter: (dateStr: string) => formatDateCompact(dateStr),
-		});
-
-		for (const data of monthlyData) {
+			addEmptySeparatorRow(table, TABLE_COLUMN_COUNT);
 			table.push([
-				data.month,
-				formatModelsDisplayMultiline(data.modelsUsed),
-				formatNumber(data.inputTokens),
-				formatNumber(data.outputTokens),
-				formatNumber(data.cacheCreationTokens),
-				formatNumber(data.cacheReadTokens),
-				formatNumber(data.totalTokens),
-				formatCurrency(data.totalCost),
+				pc.yellow('Total'),
+				'',
+				pc.yellow(formatNumber(totals.inputTokens)),
+				pc.yellow(formatNumber(totals.outputTokens)),
+				pc.yellow(formatNumber(totals.cacheCreationTokens)),
+				pc.yellow(formatNumber(totals.cacheReadTokens)),
+				pc.yellow(formatNumber(totals.totalTokens)),
+				pc.yellow(formatCurrency(totals.totalCost)),
 			]);
-		}
 
-		addEmptySeparatorRow(table, TABLE_COLUMN_COUNT);
-		table.push([
-			pc.yellow('Total'),
-			'',
-			pc.yellow(formatNumber(totals.inputTokens)),
-			pc.yellow(formatNumber(totals.outputTokens)),
-			pc.yellow(formatNumber(totals.cacheCreationTokens)),
-			pc.yellow(formatNumber(totals.cacheReadTokens)),
-			pc.yellow(formatNumber(totals.totalTokens)),
-			pc.yellow(formatCurrency(totals.totalCost)),
-		]);
-
-		// eslint-disable-next-line no-console
-		console.log(table.toString());
-
-		if (table.isCompactMode()) {
 			// eslint-disable-next-line no-console
-			console.log('\nRunning in Compact Mode');
-			// eslint-disable-next-line no-console
-			console.log('Expand terminal width to see cache metrics and total tokens');
+			console.log(table.toString());
+
+			if (table.isCompactMode()) {
+				// eslint-disable-next-line no-console
+				console.log('\nRunning in Compact Mode');
+				// eslint-disable-next-line no-console
+				console.log('Expand terminal width to see cache metrics and total tokens');
+			}
+		} finally {
+			fetcher.clearCache();
 		}
 	},
 });

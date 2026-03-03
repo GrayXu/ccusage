@@ -1,8 +1,13 @@
 import process from 'node:process';
 import Table from 'cli-table3';
-import { uniq } from 'es-toolkit';
 import pc from 'picocolors';
-import stringWidth from 'string-width';
+
+const ANSI_ESCAPE_REGEX = /\u001B\[[0-?]*[ -/]*[@-~]/g;
+
+function displayWidth(value: string): number {
+	const normalized = value.replace(ANSI_ESCAPE_REGEX, '');
+	return Array.from(normalized).length;
+}
 
 /**
  * Default locale used for date formatting when not specified
@@ -211,10 +216,10 @@ export class ResponsiveTable {
 			),
 		];
 
-		const contentWidths = head.map((_, colIndex) => {
-			const maxLength = Math.max(...allRows.map((row) => stringWidth(String(row[colIndex] ?? ''))));
-			return maxLength;
-		});
+			const contentWidths = head.map((_, colIndex) => {
+				const maxLength = Math.max(...allRows.map((row) => displayWidth(String(row[colIndex] ?? ''))));
+				return maxLength;
+			});
 
 		// Calculate table overhead
 		const numColumns = head.length;
@@ -415,7 +420,7 @@ function formatModelName(modelName: string): string {
  */
 export function formatModelsDisplay(models: string[]): string {
 	// Format array of models for display
-	const uniqueModels = uniq(models.map(formatModelName));
+	const uniqueModels = Array.from(new Set(models.map(formatModelName)));
 	return uniqueModels.sort().join(', ');
 }
 
@@ -427,7 +432,7 @@ export function formatModelsDisplay(models: string[]): string {
  */
 export function formatModelsDisplayMultiline(models: string[]): string {
 	// Format array of models for display with newlines and bullet points
-	const uniqueModels = uniq(models.map(formatModelName));
+	const uniqueModels = Array.from(new Set(models.map(formatModelName)));
 	return uniqueModels
 		.sort()
 		.map((model) => `- ${model}`)

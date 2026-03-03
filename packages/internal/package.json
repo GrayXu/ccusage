@@ -18,14 +18,14 @@
 		"typecheck": "tsgo --noEmit"
 	},
 	"dependencies": {
-		"@praha/byethrow": "catalog:runtime",
-		"consola": "catalog:runtime",
-		"valibot": "catalog:runtime"
+		"@praha/byethrow": "^0.6.3",
+		"consola": "^3.4.2",
+		"valibot": "^1.1.0"
 	},
 	"devDependencies": {
-		"@ryoppippi/eslint-config": "catalog:lint",
-		"eslint": "catalog:lint",
-		"fs-fixture": "catalog:testing",
-		"vitest": "catalog:testing"
+		"@ryoppippi/eslint-config": "^0.4.0",
+		"eslint": "^9.33.0",
+		"fs-fixture": "^2.8.1",
+		"vitest": "^4.0.15"
 	}
 }
