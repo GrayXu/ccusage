@@ -1,4 +1,4 @@
-import type { Args } from 'gunshi';
+import type { Args } from './mini-cli.ts';
 import type { CostMode, SortOrder } from './_types.ts';
 import * as v from 'valibot';
 import { DEFAULT_LOCALE } from './_consts.ts';

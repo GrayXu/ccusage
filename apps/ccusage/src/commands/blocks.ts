@@ -7,7 +7,7 @@ import {
 	ResponsiveTable,
 } from '@ccusage/terminal/table';
 import { Result } from '@praha/byethrow';
-import { define } from 'gunshi';
+import { define } from '../mini-cli.ts';
 import pc from 'picocolors';
 import { loadConfig, mergeConfigWithArgs } from '../_config-loader-tokens.ts';
 import {

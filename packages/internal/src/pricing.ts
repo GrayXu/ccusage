@@ -1,3 +1,5 @@
+import http from 'node:http';
+import https from 'node:https';
 import { Result } from '@praha/byethrow';
 import * as v from 'valibot';
 
@@ -86,6 +88,115 @@ function createLogger(logger?: PricingLogger): PricingLogger {
 	};
 }
 
+const MAX_HTTP_REDIRECTS = 5;
+const HTTP_REQUEST_TIMEOUT_MS = 10_000;
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+	return new Promise<T>((resolve, reject) => {
+		const timeout = setTimeout(() => {
+			reject(new Error(message));
+		}, timeoutMs);
+
+		promise.then(
+			(value) => {
+				clearTimeout(timeout);
+				resolve(value);
+			},
+			(error) => {
+				clearTimeout(timeout);
+				reject(error);
+			},
+		);
+	});
+}
+
+async function fetchPricingData(url: string): Promise<Record<string, unknown>> {
+	if (typeof globalThis.fetch === 'function') {
+		const response = await withTimeout(
+			fetch(url),
+			HTTP_REQUEST_TIMEOUT_MS,
+			`Failed to fetch pricing data: request timed out after ${HTTP_REQUEST_TIMEOUT_MS}ms`,
+		);
+		if (!response.ok) {
+			throw new Error(`Failed to fetch pricing data: ${response.statusText}`);
+		}
+		return withTimeout(
+			response.json() as Promise<Record<string, unknown>>,
+			HTTP_REQUEST_TIMEOUT_MS,
+			`Failed to parse pricing data: request timed out after ${HTTP_REQUEST_TIMEOUT_MS}ms`,
+		);
+	}
+
+	return fetchPricingDataWithHttp(url);
+}
+
+function fetchPricingDataWithHttp(
+	url: string,
+	redirectCount: number = 0,
+): Promise<Record<string, unknown>> {
+	return new Promise((resolve, reject) => {
+		const requestUrl = new URL(url);
+		const transport = requestUrl.protocol === 'https:' ? https : http;
+
+		const request = transport.get(requestUrl, (response) => {
+			const statusCode = response.statusCode ?? 0;
+			const statusText = response.statusMessage ?? `HTTP ${statusCode}`;
+
+			if (
+				statusCode >= 300 &&
+				statusCode < 400 &&
+				typeof response.headers.location === 'string'
+			) {
+				response.resume();
+				if (redirectCount >= MAX_HTTP_REDIRECTS) {
+					reject(new Error(`Failed to fetch pricing data: too many redirects for ${url}`));
+					return;
+				}
+
+				const nextUrl = new URL(response.headers.location, requestUrl).toString();
+				fetchPricingDataWithHttp(nextUrl, redirectCount + 1).then(resolve, reject);
+				return;
+			}
+
+			if (statusCode < 200 || statusCode >= 300) {
+				response.resume();
+				reject(new Error(`Failed to fetch pricing data: ${statusText}`));
+				return;
+			}
+
+			const chunks: string[] = [];
+			response.setEncoding('utf8');
+			response.on('data', (chunk) => {
+				chunks.push(chunk);
+			});
+			response.on('end', () => {
+				try {
+					const parsed = JSON.parse(chunks.join('')) as unknown;
+					if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+						reject(new Error('Failed to parse pricing data'));
+						return;
+					}
+					resolve(parsed as Record<string, unknown>);
+				} catch (error) {
+					reject(new Error('Failed to parse pricing data', { cause: error }));
+				}
+			});
+		});
+
+		request.on('error', (error) => {
+			reject(new Error('Failed to fetch model pricing from LiteLLM', { cause: error }));
+		});
+
+		request.setTimeout(HTTP_REQUEST_TIMEOUT_MS, () => {
+			request.destroy(
+				new Error(
+					`Failed to fetch pricing data: request timed out after ${HTTP_REQUEST_TIMEOUT_MS}ms`,
+				),
+			);
+		});
+	});
+}
+
 export class LiteLLMPricingFetcher implements Disposable {
 	private cachedPricing: Map<string, LiteLLMModelPricing> | null = null;
 	private readonly logger: PricingLogger;
@@ -155,22 +266,10 @@ export class LiteLLMPricingFetcher implements Disposable {
 				this.logger.warn('Fetching latest model pricing from LiteLLM...');
 				return Result.pipe(
 					Result.try({
-						try: fetch(this.url),
+						try: fetchPricingData(this.url),
 						catch: (error) =>
 							new Error('Failed to fetch model pricing from LiteLLM', { cause: error }),
 					}),
-					Result.andThrough((response) => {
-						if (!response.ok) {
-							return Result.fail(new Error(`Failed to fetch pricing data: ${response.statusText}`));
-						}
-						return Result.succeed();
-					}),
-					Result.andThen(async (response) =>
-						Result.try({
-							try: response.json() as Promise<Record<string, unknown>>,
-							catch: (error) => new Error('Failed to parse pricing data', { cause: error }),
-						}),
-					),
 					Result.map((data) => {
 						const pricing = new Map<string, LiteLLMModelPricing>();
 						for (const [modelName, modelData] of Object.entries(data)) {

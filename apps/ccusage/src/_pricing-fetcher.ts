@@ -1,6 +1,6 @@
 import { LiteLLMPricingFetcher } from '@ccusage/internal/pricing';
 import { Result } from '@praha/byethrow';
-import { prefetchClaudePricing } from './_macro.ts' with { type: 'macro' };
+import { prefetchClaudePricing } from './_macro.ts';
 import { logger } from './logger.ts';
 
 const CLAUDE_PROVIDER_PREFIXES = [
@@ -11,13 +11,21 @@ const CLAUDE_PROVIDER_PREFIXES = [
 	'openrouter/openai/',
 ];
 
-const PREFETCHED_CLAUDE_PRICING = prefetchClaudePricing();
+let prefetchedClaudePricingPromise: Promise<Record<string, import('@ccusage/internal/pricing').LiteLLMModelPricing>> | undefined;
+
+function getPrefetchedClaudePricing() {
+	if (prefetchedClaudePricingPromise == null) {
+		prefetchedClaudePricingPromise = prefetchClaudePricing();
+	}
+
+	return prefetchedClaudePricingPromise;
+}
 
 export class PricingFetcher extends LiteLLMPricingFetcher {
 	constructor(offline = false) {
 		super({
 			offline,
-			offlineLoader: async () => PREFETCHED_CLAUDE_PRICING,
+			offlineLoader: async () => await getPrefetchedClaudePricing(),
 			logger,
 			providerPrefixes: CLAUDE_PROVIDER_PREFIXES,
 		});

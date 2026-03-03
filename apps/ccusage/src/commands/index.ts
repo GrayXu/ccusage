@@ -1,5 +1,5 @@
 import process from 'node:process';
-import { cli } from 'gunshi';
+import { cli } from '../mini-cli.ts';
 import { description, name, version } from '../../package.json';
 import { blocksCommand } from './blocks.ts';
 import { dailyCommand } from './daily.ts';
@@ -61,6 +61,5 @@ export async function run(): Promise<void> {
 		version,
 		description,
 		subCommands,
-		renderHeader: null,
 	});
 }

@@ -771,122 +771,125 @@ export async function loadDailyUsageData(options?: LoadOptions): Promise<DailyUs
 	// Fetch pricing data for cost calculation only when needed
 	const mode = options?.mode ?? 'auto';
 
-	// Use PricingFetcher with using statement for automatic cleanup
-	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
+	const fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
 
-	// Track processed message+request combinations for deduplication
-	const processedHashes = new Set<string>();
+	try {
+		// Track processed message+request combinations for deduplication
+		const processedHashes = new Set<string>();
 
-	// Collect all valid data entries first
-	const allEntries: {
-		data: UsageData;
-		date: string;
-		cost: number;
-		model: string | undefined;
-		project: string;
-	}[] = [];
+		// Collect all valid data entries first
+		const allEntries: {
+			data: UsageData;
+			date: string;
+			cost: number;
+			model: string | undefined;
+			project: string;
+		}[] = [];
 
-	for (const file of sortedFiles) {
-		// Extract project name from file path once per file
-		const project = extractProjectFromPath(file);
+		for (const file of sortedFiles) {
+			// Extract project name from file path once per file
+			const project = extractProjectFromPath(file);
 
-		await processJSONLFileByLine(file, async (line) => {
-			try {
-				const parsed = JSON.parse(line) as unknown;
-				const result = v.safeParse(usageDataSchema, parsed);
-				if (!result.success) {
-					return;
+			await processJSONLFileByLine(file, async (line) => {
+				try {
+					const parsed = JSON.parse(line) as unknown;
+					const result = v.safeParse(usageDataSchema, parsed);
+					if (!result.success) {
+						return;
+					}
+					const data = result.output;
+
+					// Check for duplicate message + request ID combination
+					const uniqueHash = createUniqueHash(data);
+					if (isDuplicateEntry(uniqueHash, processedHashes)) {
+						// Skip duplicate message
+						return;
+					}
+
+					// Mark this combination as processed
+					markAsProcessed(uniqueHash, processedHashes);
+
+					// Always use DEFAULT_LOCALE for date grouping to ensure YYYY-MM-DD format
+					const date = formatDate(data.timestamp, options?.timezone, DEFAULT_LOCALE);
+					// If fetcher is available, calculate cost based on mode and tokens
+					// If fetcher is null, use pre-calculated costUSD or default to 0
+					const cost =
+						fetcher != null ? await calculateCostForEntry(data, mode, fetcher) : (data.costUSD ?? 0);
+
+					allEntries.push({ data, date, cost, model: data.message.model, project });
+				} catch {
+					// Skip invalid JSON lines
 				}
-				const data = result.output;
+			});
+		}
 
-				// Check for duplicate message + request ID combination
-				const uniqueHash = createUniqueHash(data);
-				if (isDuplicateEntry(uniqueHash, processedHashes)) {
-					// Skip duplicate message
-					return;
+		// Group by date, optionally including project
+		// Automatically enable project grouping when project filter is specified
+		const needsProjectGrouping = options?.groupByProject === true || options?.project != null;
+		const groupingKey = needsProjectGrouping
+			? (entry: (typeof allEntries)[0]) => `${entry.date}\x00${entry.project}`
+			: (entry: (typeof allEntries)[0]) => entry.date;
+
+		const groupedData = groupBy(allEntries, groupingKey);
+
+		// Aggregate each group
+		const results = Object.entries(groupedData)
+			.map(([groupKey, entries]) => {
+				if (entries == null) {
+					return undefined;
 				}
 
-				// Mark this combination as processed
-				markAsProcessed(uniqueHash, processedHashes);
+				// Extract date and project from groupKey (format: "date" or "date\x00project")
+				const parts = groupKey.split('\x00');
+				const date = parts[0] ?? groupKey;
+				const project = parts.length > 1 ? parts[1] : undefined;
 
-				// Always use DEFAULT_LOCALE for date grouping to ensure YYYY-MM-DD format
-				const date = formatDate(data.timestamp, options?.timezone, DEFAULT_LOCALE);
-				// If fetcher is available, calculate cost based on mode and tokens
-				// If fetcher is null, use pre-calculated costUSD or default to 0
-				const cost =
-					fetcher != null ? await calculateCostForEntry(data, mode, fetcher) : (data.costUSD ?? 0);
+				// Aggregate by model first
+				const modelAggregates = aggregateByModel(
+					entries,
+					(entry) => entry.model,
+					(entry) => entry.data.message.usage,
+					(entry) => entry.cost,
+				);
 
-				allEntries.push({ data, date, cost, model: data.message.model, project });
-			} catch {
-				// Skip invalid JSON lines
-			}
-		});
+				// Create model breakdowns
+				const modelBreakdowns = createModelBreakdowns(modelAggregates);
+
+				// Calculate totals
+				const totals = calculateTotals(
+					entries,
+					(entry) => entry.data.message.usage,
+					(entry) => entry.cost,
+				);
+
+				const modelsUsed = extractUniqueModels(entries, (e) => e.model);
+
+				return {
+					date: createDailyDate(date),
+					...totals,
+					modelsUsed: modelsUsed as ModelName[],
+					modelBreakdowns,
+					...(project != null && { project }),
+				};
+			})
+			.filter((item) => item != null);
+
+		// Filter by date range if specified
+		const dateFiltered = filterByDateRange(
+			results,
+			(item) => item.date,
+			options?.since,
+			options?.until,
+		);
+
+		// Filter by project if specified
+		const finalFiltered = filterByProject(dateFiltered, (item) => item.project, options?.project);
+
+		// Sort by date based on order option (default to descending)
+		return sortByDate(finalFiltered, (item) => item.date, options?.order);
+	} finally {
+		fetcher?.clearCache();
 	}
-
-	// Group by date, optionally including project
-	// Automatically enable project grouping when project filter is specified
-	const needsProjectGrouping = options?.groupByProject === true || options?.project != null;
-	const groupingKey = needsProjectGrouping
-		? (entry: (typeof allEntries)[0]) => `${entry.date}\x00${entry.project}`
-		: (entry: (typeof allEntries)[0]) => entry.date;
-
-	const groupedData = groupBy(allEntries, groupingKey);
-
-	// Aggregate each group
-	const results = Object.entries(groupedData)
-		.map(([groupKey, entries]) => {
-			if (entries == null) {
-				return undefined;
-			}
-
-			// Extract date and project from groupKey (format: "date" or "date\x00project")
-			const parts = groupKey.split('\x00');
-			const date = parts[0] ?? groupKey;
-			const project = parts.length > 1 ? parts[1] : undefined;
-
-			// Aggregate by model first
-			const modelAggregates = aggregateByModel(
-				entries,
-				(entry) => entry.model,
-				(entry) => entry.data.message.usage,
-				(entry) => entry.cost,
-			);
-
-			// Create model breakdowns
-			const modelBreakdowns = createModelBreakdowns(modelAggregates);
-
-			// Calculate totals
-			const totals = calculateTotals(
-				entries,
-				(entry) => entry.data.message.usage,
-				(entry) => entry.cost,
-			);
-
-			const modelsUsed = extractUniqueModels(entries, (e) => e.model);
-
-			return {
-				date: createDailyDate(date),
-				...totals,
-				modelsUsed: modelsUsed as ModelName[],
-				modelBreakdowns,
-				...(project != null && { project }),
-			};
-		})
-		.filter((item) => item != null);
-
-	// Filter by date range if specified
-	const dateFiltered = filterByDateRange(
-		results,
-		(item) => item.date,
-		options?.since,
-		options?.until,
-	);
-
-	// Filter by project if specified
-	const finalFiltered = filterByProject(dateFiltered, (item) => item.project, options?.project);
-
-	// Sort by date based on order option (default to descending)
-	return sortByDate(finalFiltered, (item) => item.date, options?.order);
 }
 
 /**
@@ -928,148 +931,151 @@ export async function loadSessionData(options?: LoadOptions): Promise<SessionUsa
 	// Fetch pricing data for cost calculation only when needed
 	const mode = options?.mode ?? 'auto';
 
-	// Use PricingFetcher with using statement for automatic cleanup
-	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
+	const fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
 
-	// Track processed message+request combinations for deduplication
-	const processedHashes = new Set<string>();
+	try {
+		// Track processed message+request combinations for deduplication
+		const processedHashes = new Set<string>();
 
-	// Collect all valid data entries with session info first
-	const allEntries: Array<{
-		data: UsageData;
-		sessionKey: string;
-		sessionId: string;
-		projectPath: string;
-		cost: number;
-		timestamp: string;
-		model: string | undefined;
-	}> = [];
+		// Collect all valid data entries with session info first
+		const allEntries: Array<{
+			data: UsageData;
+			sessionKey: string;
+			sessionId: string;
+			projectPath: string;
+			cost: number;
+			timestamp: string;
+			model: string | undefined;
+		}> = [];
 
-	for (const { file, baseDir } of sortedFilesWithBase) {
-		// Extract session info from file path using its specific base directory
-		const relativePath = path.relative(baseDir, file);
-		const parts = relativePath.split(path.sep);
+		for (const { file, baseDir } of sortedFilesWithBase) {
+			// Extract session info from file path using its specific base directory
+			const relativePath = path.relative(baseDir, file);
+			const parts = relativePath.split(path.sep);
 
-		// Session ID is the directory name containing the JSONL file
-		const sessionId = parts[parts.length - 2] ?? 'unknown';
-		// Project path is everything before the session ID
-		const joinedPath = parts.slice(0, -2).join(path.sep);
-		const projectPath = joinedPath.length > 0 ? joinedPath : 'Unknown Project';
+			// Session ID is the directory name containing the JSONL file
+			const sessionId = parts[parts.length - 2] ?? 'unknown';
+			// Project path is everything before the session ID
+			const joinedPath = parts.slice(0, -2).join(path.sep);
+			const projectPath = joinedPath.length > 0 ? joinedPath : 'Unknown Project';
 
-		await processJSONLFileByLine(file, async (line) => {
-			try {
-				const parsed = JSON.parse(line) as unknown;
-				const result = v.safeParse(usageDataSchema, parsed);
-				if (!result.success) {
-					return;
+			await processJSONLFileByLine(file, async (line) => {
+				try {
+					const parsed = JSON.parse(line) as unknown;
+					const result = v.safeParse(usageDataSchema, parsed);
+					if (!result.success) {
+						return;
+					}
+					const data = result.output;
+
+					// Check for duplicate message + request ID combination
+					const uniqueHash = createUniqueHash(data);
+					if (isDuplicateEntry(uniqueHash, processedHashes)) {
+						// Skip duplicate message
+						return;
+					}
+
+					// Mark this combination as processed
+					markAsProcessed(uniqueHash, processedHashes);
+
+					const sessionKey = `${projectPath}/${sessionId}`;
+					const cost =
+						fetcher != null ? await calculateCostForEntry(data, mode, fetcher) : (data.costUSD ?? 0);
+
+					allEntries.push({
+						data,
+						sessionKey,
+						sessionId,
+						projectPath,
+						cost,
+						timestamp: data.timestamp,
+						model: data.message.model,
+					});
+				} catch {
+					// Skip invalid JSON lines
 				}
-				const data = result.output;
+			});
+		}
 
-				// Check for duplicate message + request ID combination
-				const uniqueHash = createUniqueHash(data);
-				if (isDuplicateEntry(uniqueHash, processedHashes)) {
-					// Skip duplicate message
-					return;
+		// Group by session using Object.groupBy
+		const groupedBySessions = groupBy(allEntries, (entry) => entry.sessionKey);
+
+		// Aggregate each session group
+		const results = Object.entries(groupedBySessions)
+			.map(([_, entries]) => {
+				if (entries == null) {
+					return undefined;
 				}
 
-				// Mark this combination as processed
-				markAsProcessed(uniqueHash, processedHashes);
+				// Find the latest timestamp for lastActivity
+				const latestEntry = entries.reduce((latest, current) =>
+					current.timestamp > latest.timestamp ? current : latest,
+				);
 
-				const sessionKey = `${projectPath}/${sessionId}`;
-				const cost =
-					fetcher != null ? await calculateCostForEntry(data, mode, fetcher) : (data.costUSD ?? 0);
+				// Collect all unique versions
+				const versions: string[] = [];
+				for (const entry of entries) {
+					if (entry.data.version != null) {
+						versions.push(entry.data.version);
+					}
+				}
 
-				allEntries.push({
-					data,
-					sessionKey,
-					sessionId,
-					projectPath,
-					cost,
-					timestamp: data.timestamp,
-					model: data.message.model,
-				});
-			} catch {
-				// Skip invalid JSON lines
-			}
-		});
+				// Aggregate by model
+				const modelAggregates = aggregateByModel(
+					entries,
+					(entry) => entry.model,
+					(entry) => entry.data.message.usage,
+					(entry) => entry.cost,
+				);
+
+				// Create model breakdowns
+				const modelBreakdowns = createModelBreakdowns(modelAggregates);
+
+				// Calculate totals
+				const totals = calculateTotals(
+					entries,
+					(entry) => entry.data.message.usage,
+					(entry) => entry.cost,
+				);
+
+				const modelsUsed = extractUniqueModels(entries, (e) => e.model);
+
+				return {
+					sessionId: createSessionId(latestEntry.sessionId),
+					projectPath: createProjectPath(latestEntry.projectPath),
+					...totals,
+					// Always use DEFAULT_LOCALE for date storage to ensure YYYY-MM-DD format
+					lastActivity: formatDate(
+						latestEntry.timestamp,
+						options?.timezone,
+						DEFAULT_LOCALE,
+					) as ActivityDate,
+					versions: uniq(versions).sort() as Version[],
+					modelsUsed: modelsUsed as ModelName[],
+					modelBreakdowns,
+				};
+			})
+			.filter((item) => item != null);
+
+		// Filter by date range if specified
+		const dateFiltered = filterByDateRange(
+			results,
+			(item) => item.lastActivity,
+			options?.since,
+			options?.until,
+		);
+
+		// Filter by project if specified
+		const sessionFiltered = filterByProject(
+			dateFiltered,
+			(item) => item.projectPath,
+			options?.project,
+		);
+
+		return sortByDate(sessionFiltered, (item) => item.lastActivity, options?.order);
+	} finally {
+		fetcher?.clearCache();
 	}
-
-	// Group by session using Object.groupBy
-	const groupedBySessions = groupBy(allEntries, (entry) => entry.sessionKey);
-
-	// Aggregate each session group
-	const results = Object.entries(groupedBySessions)
-		.map(([_, entries]) => {
-			if (entries == null) {
-				return undefined;
-			}
-
-			// Find the latest timestamp for lastActivity
-			const latestEntry = entries.reduce((latest, current) =>
-				current.timestamp > latest.timestamp ? current : latest,
-			);
-
-			// Collect all unique versions
-			const versions: string[] = [];
-			for (const entry of entries) {
-				if (entry.data.version != null) {
-					versions.push(entry.data.version);
-				}
-			}
-
-			// Aggregate by model
-			const modelAggregates = aggregateByModel(
-				entries,
-				(entry) => entry.model,
-				(entry) => entry.data.message.usage,
-				(entry) => entry.cost,
-			);
-
-			// Create model breakdowns
-			const modelBreakdowns = createModelBreakdowns(modelAggregates);
-
-			// Calculate totals
-			const totals = calculateTotals(
-				entries,
-				(entry) => entry.data.message.usage,
-				(entry) => entry.cost,
-			);
-
-			const modelsUsed = extractUniqueModels(entries, (e) => e.model);
-
-			return {
-				sessionId: createSessionId(latestEntry.sessionId),
-				projectPath: createProjectPath(latestEntry.projectPath),
-				...totals,
-				// Always use DEFAULT_LOCALE for date storage to ensure YYYY-MM-DD format
-				lastActivity: formatDate(
-					latestEntry.timestamp,
-					options?.timezone,
-					DEFAULT_LOCALE,
-				) as ActivityDate,
-				versions: uniq(versions).sort() as Version[],
-				modelsUsed: modelsUsed as ModelName[],
-				modelBreakdowns,
-			};
-		})
-		.filter((item) => item != null);
-
-	// Filter by date range if specified
-	const dateFiltered = filterByDateRange(
-		results,
-		(item) => item.lastActivity,
-		options?.since,
-		options?.until,
-	);
-
-	// Filter by project if specified
-	const sessionFiltered = filterByProject(
-		dateFiltered,
-		(item) => item.projectPath,
-		options?.project,
-	);
-
-	return sortByDate(sessionFiltered, (item) => item.lastActivity, options?.order);
 }
 
 /**
@@ -1137,31 +1143,35 @@ export async function loadSessionUsageById(
 	}
 
 	const mode = options?.mode ?? 'auto';
-	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
+	const fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
 
-	const entries: UsageData[] = [];
-	let totalCost = 0;
+	try {
+		const entries: UsageData[] = [];
+		let totalCost = 0;
 
-	await processJSONLFileByLine(file, async (line) => {
-		try {
-			const parsed = JSON.parse(line) as unknown;
-			const result = v.safeParse(usageDataSchema, parsed);
-			if (!result.success) {
-				return;
+		await processJSONLFileByLine(file, async (line) => {
+			try {
+				const parsed = JSON.parse(line) as unknown;
+				const result = v.safeParse(usageDataSchema, parsed);
+				if (!result.success) {
+					return;
+				}
+				const data = result.output;
+
+				const cost =
+					fetcher != null ? await calculateCostForEntry(data, mode, fetcher) : (data.costUSD ?? 0);
+
+				totalCost += cost;
+				entries.push(data);
+			} catch {
+				// Skip invalid JSON lines
 			}
-			const data = result.output;
+		});
 
-			const cost =
-				fetcher != null ? await calculateCostForEntry(data, mode, fetcher) : (data.costUSD ?? 0);
-
-			totalCost += cost;
-			entries.push(data);
-		} catch {
-			// Skip invalid JSON lines
-		}
-	});
-
-	return { totalCost, entries };
+		return { totalCost, entries };
+	} finally {
+		fetcher?.clearCache();
+	}
 }
 
 export async function loadBucketUsageData(
@@ -1299,18 +1309,22 @@ export async function calculateContextTokens(
 				// Get context limit from PricingFetcher
 				let contextLimit = 200_000; // Fallback for when modelId is not provided
 				if (modelId != null && modelId !== '') {
-					using fetcher = new PricingFetcher(offline);
-					const contextLimitResult = await fetcher.getModelContextLimit(modelId);
-					if (Result.isSuccess(contextLimitResult) && contextLimitResult.value != null) {
-						contextLimit = contextLimitResult.value;
-					} else if (Result.isSuccess(contextLimitResult)) {
-						// Context limit not available for this model in LiteLLM
-						logger.debug(`No context limit data available for model ${modelId} in LiteLLM`);
-					} else {
-						// Error occurred
-						logger.debug(
-							`Failed to get context limit for model ${modelId}: ${contextLimitResult.error.message}`,
-						);
+					const fetcher = new PricingFetcher(offline);
+					try {
+						const contextLimitResult = await fetcher.getModelContextLimit(modelId);
+						if (Result.isSuccess(contextLimitResult) && contextLimitResult.value != null) {
+							contextLimit = contextLimitResult.value;
+						} else if (Result.isSuccess(contextLimitResult)) {
+							// Context limit not available for this model in LiteLLM
+							logger.debug(`No context limit data available for model ${modelId} in LiteLLM`);
+						} else {
+							// Error occurred
+							logger.debug(
+								`Failed to get context limit for model ${modelId}: ${contextLimitResult.error.message}`,
+							);
+						}
+					} finally {
+						fetcher.clearCache();
 					}
 				}
 
@@ -1373,89 +1387,92 @@ export async function loadSessionBlockData(options?: LoadOptions): Promise<Sessi
 	// Fetch pricing data for cost calculation only when needed
 	const mode = options?.mode ?? 'auto';
 
-	// Use PricingFetcher with using statement for automatic cleanup
-	using fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
+	const fetcher = mode === 'display' ? null : new PricingFetcher(options?.offline);
 
-	// Track processed message+request combinations for deduplication
-	const processedHashes = new Set<string>();
+	try {
+		// Track processed message+request combinations for deduplication
+		const processedHashes = new Set<string>();
 
-	// Collect all valid data entries first
-	const allEntries: LoadedUsageEntry[] = [];
+		// Collect all valid data entries first
+		const allEntries: LoadedUsageEntry[] = [];
 
-	for (const file of sortedFiles) {
-		await processJSONLFileByLine(file, async (line) => {
-			try {
-				const parsed = JSON.parse(line) as unknown;
-				const result = v.safeParse(usageDataSchema, parsed);
-				if (!result.success) {
-					return;
+		for (const file of sortedFiles) {
+			await processJSONLFileByLine(file, async (line) => {
+				try {
+					const parsed = JSON.parse(line) as unknown;
+					const result = v.safeParse(usageDataSchema, parsed);
+					if (!result.success) {
+						return;
+					}
+					const data = result.output;
+
+					// Check for duplicate message + request ID combination
+					const uniqueHash = createUniqueHash(data);
+					if (isDuplicateEntry(uniqueHash, processedHashes)) {
+						// Skip duplicate message
+						return;
+					}
+
+					// Mark this combination as processed
+					markAsProcessed(uniqueHash, processedHashes);
+
+					const cost =
+						fetcher != null ? await calculateCostForEntry(data, mode, fetcher) : (data.costUSD ?? 0);
+
+					// Get Claude Code usage limit expiration date
+					const usageLimitResetTime = getUsageLimitResetTime(data);
+
+					allEntries.push({
+						timestamp: new Date(data.timestamp),
+						usage: {
+							inputTokens: data.message.usage.input_tokens,
+							outputTokens: data.message.usage.output_tokens,
+							cacheCreationInputTokens: data.message.usage.cache_creation_input_tokens ?? 0,
+							cacheReadInputTokens: data.message.usage.cache_read_input_tokens ?? 0,
+						},
+						costUSD: cost,
+						model: data.message.model ?? 'unknown',
+						version: data.version,
+						usageLimitResetTime: usageLimitResetTime ?? undefined,
+					});
+				} catch (error) {
+					// Skip invalid JSON lines but log for debugging purposes
+					logger.debug(
+						`Skipping invalid JSON line in 5-hour blocks: ${error instanceof Error ? error.message : String(error)}`,
+					);
 				}
-				const data = result.output;
+			});
+		}
 
-				// Check for duplicate message + request ID combination
-				const uniqueHash = createUniqueHash(data);
-				if (isDuplicateEntry(uniqueHash, processedHashes)) {
-					// Skip duplicate message
-					return;
-				}
+		// Identify session blocks
+		const blocks = identifySessionBlocks(allEntries, options?.sessionDurationHours);
 
-				// Mark this combination as processed
-				markAsProcessed(uniqueHash, processedHashes);
+		// Filter by date range if specified
+		const dateFiltered =
+			(options?.since != null && options.since !== '') ||
+			(options?.until != null && options.until !== '')
+				? blocks.filter((block) => {
+						// Always use DEFAULT_LOCALE for date comparison to ensure YYYY-MM-DD format
+						const blockDateStr = formatDate(
+							block.startTime.toISOString(),
+							options?.timezone,
+							DEFAULT_LOCALE,
+						).replace(/-/g, '');
+						if (options.since != null && options.since !== '' && blockDateStr < options.since) {
+							return false;
+						}
+						if (options.until != null && options.until !== '' && blockDateStr > options.until) {
+							return false;
+						}
+						return true;
+					})
+				: blocks;
 
-				const cost =
-					fetcher != null ? await calculateCostForEntry(data, mode, fetcher) : (data.costUSD ?? 0);
-
-				// Get Claude Code usage limit expiration date
-				const usageLimitResetTime = getUsageLimitResetTime(data);
-
-				allEntries.push({
-					timestamp: new Date(data.timestamp),
-					usage: {
-						inputTokens: data.message.usage.input_tokens,
-						outputTokens: data.message.usage.output_tokens,
-						cacheCreationInputTokens: data.message.usage.cache_creation_input_tokens ?? 0,
-						cacheReadInputTokens: data.message.usage.cache_read_input_tokens ?? 0,
-					},
-					costUSD: cost,
-					model: data.message.model ?? 'unknown',
-					version: data.version,
-					usageLimitResetTime: usageLimitResetTime ?? undefined,
-				});
-			} catch (error) {
-				// Skip invalid JSON lines but log for debugging purposes
-				logger.debug(
-					`Skipping invalid JSON line in 5-hour blocks: ${error instanceof Error ? error.message : String(error)}`,
-				);
-			}
-		});
+		// Sort by start time based on order option
+		return sortByDate(dateFiltered, (block) => block.startTime, options?.order);
+	} finally {
+		fetcher?.clearCache();
 	}
-
-	// Identify session blocks
-	const blocks = identifySessionBlocks(allEntries, options?.sessionDurationHours);
-
-	// Filter by date range if specified
-	const dateFiltered =
-		(options?.since != null && options.since !== '') ||
-		(options?.until != null && options.until !== '')
-			? blocks.filter((block) => {
-					// Always use DEFAULT_LOCALE for date comparison to ensure YYYY-MM-DD format
-					const blockDateStr = formatDate(
-						block.startTime.toISOString(),
-						options?.timezone,
-						DEFAULT_LOCALE,
-					).replace(/-/g, '');
-					if (options.since != null && options.since !== '' && blockDateStr < options.since) {
-						return false;
-					}
-					if (options.until != null && options.until !== '' && blockDateStr > options.until) {
-						return false;
-					}
-					return true;
-				})
-			: blocks;
-
-	// Sort by start time based on order option
-	return sortByDate(dateFiltered, (block) => block.startTime, options?.order);
 }
 
 if (import.meta.vitest != null) {

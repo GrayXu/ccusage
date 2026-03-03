@@ -1,13 +1,12 @@
 import type { Formatter } from 'picocolors/types';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
 import { formatCurrency } from '@ccusage/terminal/table';
 import { Result } from '@praha/byethrow';
-import { createLimoJson } from '@ryoppippi/limo';
 import getStdin from 'get-stdin';
-import { define } from 'gunshi';
+import { define } from '../mini-cli.ts';
 import pc from 'picocolors';
 import * as v from 'valibot';
 import { loadConfig, mergeConfigWithArgs } from '../_config-loader-tokens.ts';
@@ -41,23 +40,6 @@ function formatRemainingTime(remaining: number): string {
 }
 
 /**
- * Gets semaphore file for session-specific caching and process coordination
- * Uses time-based expiry and transcript file modification detection for cache invalidation
- */
-function getSemaphore(
-	sessionId: string,
-): ReturnType<typeof createLimoJson<SemaphoreType | undefined>> {
-	const semaphoreDir = join(tmpdir(), 'ccusage-semaphore');
-	const semaphorePath = join(semaphoreDir, `${sessionId}.lock`);
-
-	// Ensure semaphore directory exists
-	mkdirSync(semaphoreDir, { recursive: true });
-
-	const semaphore = createLimoJson<SemaphoreType>(semaphorePath);
-	return semaphore;
-}
-
-/**
  * Semaphore structure for hybrid caching system
  * Combines time-based expiry with transcript file modification detection
  */
@@ -77,6 +59,31 @@ type SemaphoreType = {
 	/** Process ID of updating process for deadlock detection */
 	pid?: number;
 };
+
+function getSemaphorePath(sessionId: string): string {
+	const semaphoreDir = join(tmpdir(), 'ccusage-semaphore');
+	mkdirSync(semaphoreDir, { recursive: true });
+	return join(semaphoreDir, `${sessionId}.lock`);
+}
+
+function readSemaphore(sessionId: string): SemaphoreType | undefined {
+	const semaphorePath = getSemaphorePath(sessionId);
+	try {
+		const raw = readFileSync(semaphorePath, 'utf-8');
+		const parsed = JSON.parse(raw) as unknown;
+		if (typeof parsed !== 'object' || parsed == null) {
+			return undefined;
+		}
+		return parsed as SemaphoreType;
+	} catch {
+		return undefined;
+	}
+}
+
+function writeSemaphore(sessionId: string, data: SemaphoreType): void {
+	const semaphorePath = getSemaphorePath(sessionId);
+	writeFileSync(semaphorePath, JSON.stringify(data), 'utf-8');
+}
 
 const visualBurnRateChoices = ['off', 'emoji', 'text', 'emoji-text'] as const;
 const costSourceChoices = ['auto', 'ccusage', 'cc', 'both'] as const;
@@ -198,11 +205,7 @@ export const statuslineCommand = define({
 		 * Read initial semaphore state for cache validation and process checking
 		 * This is a snapshot taken at the beginning to avoid race conditions
 		 */
-		const initialSemaphoreState = Result.pipe(
-			Result.succeed(getSemaphore(sessionId)),
-			Result.map((semaphore) => semaphore.data),
-			Result.unwrap(undefined),
-		);
+		const initialSemaphoreState = readSemaphore(sessionId);
 
 		// Get current file modification time for cache validation and semaphore update
 		const currentMtime = await getFileModifiedTime(hookData.transcript_path);
@@ -252,16 +255,16 @@ export const statuslineCommand = define({
 		// Acquisition phase: Mark as updating
 		{
 			const currentPid = process.pid;
-			using semaphore = getSemaphore(sessionId);
-			if (semaphore.data != null) {
-				semaphore.data = {
-					...semaphore.data,
+			const existingSemaphore = readSemaphore(sessionId);
+			if (existingSemaphore != null) {
+				writeSemaphore(sessionId, {
+					...existingSemaphore,
 					isUpdating: true,
 					pid: currentPid,
-				} as const satisfies SemaphoreType;
+				} as const satisfies SemaphoreType);
 			} else {
 				const currentMtimeForInit = await getFileModifiedTime(hookData.transcript_path);
-				semaphore.data = {
+				writeSemaphore(sessionId, {
 					date: new Date().toISOString(),
 					lastOutput: '',
 					lastUpdateTime: 0,
@@ -269,7 +272,7 @@ export const statuslineCommand = define({
 					transcriptMtime: currentMtimeForInit,
 					isUpdating: true,
 					pid: currentPid,
-				} as const satisfies SemaphoreType;
+				} as const satisfies SemaphoreType);
 			}
 		}
 
@@ -534,8 +537,7 @@ export const statuslineCommand = define({
 				return;
 			}
 			// update semaphore with result (use mtime from cache validation time)
-			using semaphore = getSemaphore(sessionId);
-			semaphore.data = {
+			writeSemaphore(sessionId, {
 				date: new Date().toISOString(),
 				lastOutput: statusLine,
 				lastUpdateTime: Date.now(),
@@ -543,7 +545,7 @@ export const statuslineCommand = define({
 				transcriptMtime: currentMtime, // Use mtime from when we started processing
 				isUpdating: false,
 				pid: undefined,
-			};
+			});
 			return;
 		}
 
@@ -566,10 +568,13 @@ export const statuslineCommand = define({
 			}
 
 			// Release semaphore and reset updating flag
-			using semaphore = getSemaphore(sessionId);
-			if (semaphore.data != null) {
-				semaphore.data.isUpdating = false;
-				semaphore.data.pid = undefined;
+			const semaphore = readSemaphore(sessionId);
+			if (semaphore != null) {
+				writeSemaphore(sessionId, {
+					...semaphore,
+					isUpdating: false,
+					pid: undefined,
+				});
 			}
 		}
 	},

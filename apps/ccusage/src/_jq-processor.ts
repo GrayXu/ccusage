@@ -1,5 +1,42 @@
+import { spawn } from 'node:child_process';
 import { Result } from '@praha/byethrow';
-import spawn from 'nano-spawn';
+
+async function runJq(jqCommand: string, jsonString: string): Promise<string> {
+	return await new Promise<string>((resolve, reject) => {
+		const child = spawn('jq', [jqCommand], {
+			stdio: ['pipe', 'pipe', 'pipe'],
+		});
+
+		let stdout = '';
+		let stderr = '';
+
+		child.stdout.setEncoding('utf8');
+		child.stderr.setEncoding('utf8');
+		child.stdout.on('data', (chunk: string) => {
+			stdout += chunk;
+		});
+		child.stderr.on('data', (chunk: string) => {
+			stderr += chunk;
+		});
+
+		child.on('error', (error) => {
+			reject(error);
+		});
+		child.on('close', (code) => {
+			if (code === 0) {
+				resolve(stdout.trim());
+				return;
+			}
+			const errorMessage = stderr.trim() || `jq exited with code ${code ?? 'unknown'}`;
+			reject(new Error(errorMessage));
+		});
+
+		child.stdin.on('error', (error) => {
+			reject(error);
+		});
+		child.stdin.end(jsonString);
+	});
+}
 
 /**
  * Process JSON data with a jq command
@@ -17,10 +54,7 @@ export async function processWithJq(
 	// Use Result.try with object form to wrap spawn call
 	const result = Result.try({
 		try: async () => {
-			const spawnResult = await spawn('jq', [jqCommand], {
-				stdin: { string: jsonString },
-			});
-			return spawnResult.output.trim();
+			return await runJq(jqCommand, jsonString);
 		},
 		catch: (error: unknown) => {
 			if (error instanceof Error) {

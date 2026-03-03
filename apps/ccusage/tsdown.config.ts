@@ -1,5 +1,4 @@
 import { defineConfig } from 'tsdown';
-import Macros from 'unplugin-macros/rolldown';
 
 export default defineConfig({
 	entry: [
@@ -13,6 +12,7 @@ export default defineConfig({
 	sourcemap: false,
 	minify: 'dce-only',
 	treeshake: true,
+	target: 'node16',
 	fixedExtension: false,
 	dts: {
 		tsgo: false,
@@ -24,11 +24,6 @@ export default defineConfig({
 		devExports: true,
 	},
 	nodeProtocol: true,
-	plugins: [
-		Macros({
-			include: ['src/index.ts', 'src/_pricing-fetcher.ts'],
-		}),
-	],
 	define: {
 		'import.meta.vitest': 'undefined',
 	},
