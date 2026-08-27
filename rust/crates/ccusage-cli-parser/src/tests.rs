@@ -203,6 +203,7 @@ fn command_snapshot(command: Option<Command>) -> Value {
         Some(Command::Gemini(args)) => agent_command_snapshot("gemini", args),
         Some(Command::Kimi(args)) => agent_command_snapshot("kimi", args),
         Some(Command::Qwen(args)) => agent_command_snapshot("qwen", args),
+        Some(Command::QoderCli(args)) => agent_command_snapshot("qodercli", args),
         Some(Command::OpenClaw(args)) => agent_command_snapshot("openclaw", args),
         Some(Command::Grok(args)) => agent_command_snapshot("grok", args),
     }
@@ -233,6 +234,17 @@ fn parses_root_daily_as_all_agent_report() {
     assert_eq!(args.kind, AgentReportKind::Daily);
     assert!(args.shared.json);
     assert_eq!(args.shared.since.as_deref(), Some("20260102"));
+}
+
+#[test]
+fn parses_qodercli_daily_as_a_standard_agent_report() {
+    let cli = parse(&["ccusage", "qodercli", "daily", "--json"]);
+    let Some(Command::QoderCli(args)) = cli.command else {
+        panic!("expected qodercli command");
+    };
+
+    assert_eq!(args.kind, AgentReportKind::Daily);
+    assert!(args.shared.json);
 }
 
 #[test]
@@ -745,6 +757,17 @@ fn grok_help_does_not_advertise_path_option() {
     ]);
 
     assert!(!help.contains("--grok-path"));
+}
+
+#[test]
+fn qodercli_help_lists_standard_report_commands() {
+    let help = help_text_for_args(&["ccusage".to_string(), "qodercli".to_string()]);
+
+    assert!(help.contains("USAGE:\n  ccusage qodercli <COMMANDS>"));
+    assert!(help.contains("Show Qoder CLI usage grouped by date"));
+    assert!(help.contains("Show Qoder CLI usage grouped by month"));
+    assert!(help.contains("Show Qoder CLI usage grouped by session"));
+    assert!(!help.contains("weekly"));
 }
 
 #[test]

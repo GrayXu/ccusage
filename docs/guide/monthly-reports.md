@@ -10,6 +10,7 @@ ccusage codex monthly
 ccusage amp monthly
 ccusage pi monthly
 ccusage qwen monthly
+ccusage qodercli monthly
 ```
 
 ## Example Output

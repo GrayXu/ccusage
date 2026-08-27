@@ -4,7 +4,7 @@ ccusage supports several environment variables for configuration and customizati
 
 ## Agent Data Directories
 
-ccusage detects supported data source files from conventional locations by default. Set these variables when your data lives somewhere else. Directory variables can be one directory or a comma-separated list of directories; the Copilot variable points at one explicit JSONL export file, and `GROK_HOME` accepts a single root only:
+ccusage detects supported data source files from conventional locations by default. Set these variables when your data lives somewhere else. Directory variables can be one directory or a comma-separated list of directories; the Copilot variable points at one explicit JSONL export file, and `GROK_HOME` plus `QODER_CONFIG_DIR` accept a single root only:
 
 | Variable                          | Agent          | Default                            |
 | --------------------------------- | -------------- | ---------------------------------- |
@@ -21,6 +21,7 @@ ccusage detects supported data source files from conventional locations by defau
 | `KILO_DATA_DIR`                   | Kilo           | `~/.local/share/kilo`              |
 | `KIMI_DATA_DIR`                   | Kimi           | `~/.kimi`, `~/.kimi-code`          |
 | `QWEN_DATA_DIR`                   | Qwen           | `~/.qwen`                          |
+| `QODER_CONFIG_DIR`                | Qoder CLI      | `~/.qoder`                         |
 | `COPILOT_OTEL_FILE_EXPORTER_PATH` | Copilot CLI    | Explicit `.jsonl` file             |
 | `GEMINI_DATA_DIR`                 | Gemini CLI     | `~/.gemini/tmp`                    |
 | `GROK_HOME`                       | Grok Build CLI | `~/.grok`                          |
@@ -40,6 +41,7 @@ export OPENCLAW_DIR="/path/to/openclaw,/archive/openclaw"
 export KILO_DATA_DIR="/path/to/kilo,/archive/kilo"
 export KIMI_DATA_DIR="/path/to/kimi,/archive/kimi"
 export QWEN_DATA_DIR="/path/to/qwen,/archive/qwen"
+export QODER_CONFIG_DIR="/path/to/qoder"
 export COPILOT_OTEL_FILE_EXPORTER_PATH="/path/to/copilot-otel.jsonl"
 export GEMINI_DATA_DIR="/path/to/gemini/tmp,/archive/gemini/tmp"
 export GROK_HOME="/path/to/grok-home"
@@ -212,7 +214,7 @@ To see which environment variables are being used:
 
 ```bash
 # Show all environment variables
-env | grep -E "CLAUDE|CODEX|OPENCODE|AMP|DROID|CODEBUFF|HERMES|PI_AGENT|GOOSE|OPENCLAW|KILO|KIMI|QWEN|COPILOT|GEMINI|GROK|CCUSAGE|LOG_LEVEL"
+env | grep -E "CLAUDE|CODEX|OPENCODE|AMP|DROID|CODEBUFF|HERMES|PI_AGENT|GOOSE|OPENCLAW|KILO|KIMI|QWEN|QODER|COPILOT|GEMINI|GROK|CCUSAGE|LOG_LEVEL"
 
 # Debug mode shows environment variable usage
 LOG_LEVEL=4 ccusage daily --debug

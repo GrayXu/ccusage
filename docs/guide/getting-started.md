@@ -52,6 +52,7 @@ ccusage pi monthly
 ccusage kilo daily
 ccusage kimi daily
 ccusage qwen daily
+ccusage qodercli daily
 ```
 
 ## Your First Report
@@ -175,6 +176,7 @@ If ccusage shows no data, check:
    - Kimi: `${KIMI_DATA_DIR:-~/.kimi}` (also scans `~/.kimi-code`)
    - OpenClaw: `${OPENCLAW_DIR:-~/.openclaw}` (also scans `~/.clawdbot`, `~/.moltbot`, `~/.moldbot`)
    - Qwen: `${QWEN_DATA_DIR:-~/.qwen}`
+   - Qoder CLI: `${QODER_CONFIG_DIR:-~/.qoder}/projects`
    - GitHub Copilot CLI: `~/.copilot/otel/*.jsonl` or `COPILOT_OTEL_FILE_EXPORTER_PATH`
    - Grok Build CLI: `${GROK_HOME:-~/.grok}`
 
@@ -196,11 +198,12 @@ export OPENCLAW_DIR="/path/to/openclaw"
 export KILO_DATA_DIR="/path/to/kilo"
 export KIMI_DATA_DIR="/path/to/kimi"
 export QWEN_DATA_DIR="/path/to/qwen"
+export QODER_CONFIG_DIR="/path/to/qoder"
 export COPILOT_OTEL_FILE_EXPORTER_PATH="/path/to/copilot-otel.jsonl"
 export GROK_HOME="/path/to/grok-home"
 ```
 
-Each source-specific path variable can also contain comma-separated directories, except `GROK_HOME`, which takes a single root:
+Each source-specific path variable can also contain comma-separated directories, except `GROK_HOME` and `QODER_CONFIG_DIR`, which each take a single root:
 
 ```bash
 export CODEX_HOME="/path/to/codex,/archive/codex,/path/to/codex-exec-jsonl"

@@ -98,6 +98,10 @@
 				"description": "Show Qwen usage commands"
 			},
 			{
+				"name": "qodercli",
+				"description": "Show Qoder CLI usage commands"
+			},
+			{
 				"name": "openclaw",
 				"description": "Show OpenClaw usage commands"
 			},
@@ -700,6 +704,43 @@
 			"path": ["qwen", "session"],
 			"description": "Show Qwen usage grouped by session",
 			"usage": "ccusage qwen session <OPTIONS>",
+			"options": "agent_options"
+		},
+		{
+			"path": ["qodercli"],
+			"description": "Usage reports for Qoder CLI.",
+			"usage": "ccusage qodercli <COMMANDS>",
+			"commands": [
+				{
+					"name": "daily",
+					"description": "Show Qoder CLI usage grouped by date"
+				},
+				{
+					"name": "monthly",
+					"description": "Show Qoder CLI usage grouped by month"
+				},
+				{
+					"name": "session",
+					"description": "Show Qoder CLI usage grouped by session"
+				}
+			]
+		},
+		{
+			"path": ["qodercli", "daily"],
+			"description": "Show Qoder CLI usage grouped by date",
+			"usage": "ccusage qodercli daily <OPTIONS>",
+			"options": "agent_period_options"
+		},
+		{
+			"path": ["qodercli", "monthly"],
+			"description": "Show Qoder CLI usage grouped by month",
+			"usage": "ccusage qodercli monthly <OPTIONS>",
+			"options": "agent_period_options"
+		},
+		{
+			"path": ["qodercli", "session"],
+			"description": "Show Qoder CLI usage grouped by session",
+			"usage": "ccusage qodercli session <OPTIONS>",
 			"options": "agent_options"
 		},
 		{

@@ -11,6 +11,7 @@ ccusage opencode session
 ccusage amp session
 ccusage pi session
 ccusage qwen session
+ccusage qodercli session
 ```
 
 ## Specific Session Lookup

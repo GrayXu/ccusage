@@ -50,6 +50,8 @@ pub struct CcusageConfig {
     pub kimi: Option<KimiConfig>,
     /// Qwen configuration.
     pub qwen: Option<QwenConfig>,
+    /// Qoder CLI configuration.
+    pub qodercli: Option<QoderCliConfig>,
     /// Grok Build CLI configuration.
     pub grok: Option<GrokConfig>,
 }
@@ -301,6 +303,21 @@ pub struct QwenConfig {
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct QwenCommandsConfig {
+    pub daily: Option<SharedOptions>,
+    pub monthly: Option<SharedOptions>,
+    pub session: Option<SharedOptions>,
+}
+
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QoderCliConfig {
+    pub defaults: Option<SharedOptions>,
+    pub commands: Option<QoderCliCommandsConfig>,
+}
+
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QoderCliCommandsConfig {
     pub daily: Option<SharedOptions>,
     pub monthly: Option<SharedOptions>,
     pub session: Option<SharedOptions>,
@@ -1092,6 +1109,7 @@ mod tests {
             &["openclaw", "defaults"],
             &with_keys(&shared, &["openClawPath"]),
         );
+        assert_schema_properties(&schema, &["qodercli", "defaults"], &shared);
         assert_schema_properties(&schema, &["grok", "defaults"], &shared);
     }
 
@@ -1112,6 +1130,7 @@ mod tests {
         assert!(schema_property(&schema, &["gemini", "defaults", "openClawPath"]).is_none());
         assert!(schema_property(&schema, &["kimi", "defaults", "openClawPath"]).is_none());
         assert!(schema_property(&schema, &["qwen", "defaults", "openClawPath"]).is_none());
+        assert!(schema_property(&schema, &["qodercli", "defaults", "openClawPath"]).is_none());
         assert!(schema_property(&schema, &["grok", "defaults", "grokPath"]).is_none());
         assert!(schema_property(&schema, &["openclaw", "defaults", "grokPath"]).is_none());
     }
@@ -1148,7 +1167,7 @@ mod tests {
             &[
                 "$schema", "amp", "claude", "codebuff", "codex", "commands", "copilot", "defaults",
                 "droid", "gemini", "goose", "grok", "hermes", "kilo", "kimi", "opencode",
-                "openclaw", "pi", "qwen",
+                "openclaw", "pi", "qodercli", "qwen",
             ],
         );
         assert!(
@@ -1296,6 +1315,13 @@ mod tests {
                         "json": true
                     }
                 }
+            },
+            "qodercli": {
+                "commands": {
+                    "session": {
+                        "json": true
+                    }
+                }
             }
         });
 
@@ -1430,6 +1456,7 @@ mod tests {
             "opencodeWeekly": schema_node(&schema, &["opencode", "commands", "weekly"]),
             "piDefaults": schema_node(&schema, &["pi", "defaults"]),
             "openclawDefaults": schema_node(&schema, &["openclaw", "defaults"]),
+            "qodercliDefaults": schema_node(&schema, &["qodercli", "defaults"]),
             "grokDefaults": schema_node(&schema, &["grok", "defaults"]),
         }));
     }

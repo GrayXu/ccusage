@@ -48,6 +48,7 @@ fn window_target(cli: &mut Cli) -> Option<(&mut SharedArgs, PeriodUnit, WeekDay)
             | Command::Gemini(args)
             | Command::Kimi(args)
             | Command::Qwen(args)
+            | Command::QoderCli(args)
             | Command::OpenClaw(args)
             | Command::Grok(args),
         ) => agent_window_target(args),

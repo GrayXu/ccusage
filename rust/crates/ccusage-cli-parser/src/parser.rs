@@ -332,6 +332,13 @@ fn parse_command(
             STANDARD_AGENT_REPORTS,
             Command::Qwen,
         ),
+        "qodercli" => parse_basic_agent_command(
+            parser,
+            shared,
+            "qodercli",
+            STANDARD_AGENT_REPORTS,
+            Command::QoderCli,
+        ),
         "openclaw" => parse_openclaw_command(parser, shared, config),
         "grok" => parse_basic_agent_command(
             parser,
@@ -770,6 +777,7 @@ fn is_command(arg: &str) -> bool {
             | "gemini"
             | "kimi"
             | "qwen"
+            | "qodercli"
             | "grok"
     )
 }
@@ -929,6 +937,7 @@ fn is_agent_command(command: &str) -> bool {
             | "gemini"
             | "kimi"
             | "qwen"
+            | "qodercli"
             | "openclaw"
             | "grok"
     )
@@ -943,7 +952,7 @@ fn agent_report_supported(agent: &str, report: &str) -> bool {
         "codex" => matches!(report, "daily" | "monthly" | "session"),
         "opencode" => matches!(report, "daily" | "weekly" | "monthly" | "session"),
         "amp" | "droid" | "codebuff" | "hermes" | "pi" | "goose" | "kilo" | "copilot"
-        | "gemini" | "kimi" | "qwen" | "openclaw" | "grok" => {
+        | "gemini" | "kimi" | "qwen" | "qodercli" | "openclaw" | "grok" => {
             matches!(report, "daily" | "monthly" | "session")
         }
         _ => false,
@@ -966,6 +975,7 @@ fn agent_display_name(agent: &str) -> &'static str {
         "gemini" => "Gemini CLI",
         "kimi" => "Kimi",
         "qwen" => "Qwen",
+        "qodercli" => "Qoder CLI",
         "openclaw" => "OpenClaw",
         "grok" => "Grok",
         _ => unreachable!("agent is prevalidated"),
@@ -1047,6 +1057,7 @@ fn last_option_error(command: Option<&Command>, root_shared: &SharedArgs) -> Opt
             | Command::Gemini(args)
             | Command::Kimi(args)
             | Command::Qwen(args)
+            | Command::QoderCli(args)
             | Command::OpenClaw(args)
             | Command::Grok(args),
         ) => (&args.shared, args.kind != AgentReportKind::Session),

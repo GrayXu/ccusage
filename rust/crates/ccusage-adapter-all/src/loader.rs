@@ -12,7 +12,7 @@ use crate::{
     SessionAccumulator, UsageSummary,
     adapter::{
         amp, claude, codebuff, codex, copilot, droid, gemini, goose, grok, hermes, kilo, kimi,
-        openclaw, opencode, pi, qwen,
+        openclaw, opencode, pi, qodercli, qwen,
     },
     cli::{AgentReportKind, CodexSpeed, NamedPiStore, SharedArgs, WeekDay},
     filter_loaded_entries_by_date, json_float,
@@ -322,6 +322,22 @@ fn load_base_rows(
                     grok::summarize_entries,
                 )?;
                 rows.detected = rows.detected || grok::has_data();
+                Ok(rows)
+            }),
+        },
+        AgentLoadSpec {
+            index: 16,
+            agent: BUILT_IN_AGENT_NAMES[16],
+            progress_agent: crate::progress::UsageLoadAgent("Qoder CLI"),
+            load: Box::new(|| {
+                let mut rows = load_summary_agent_rows(
+                    "qodercli",
+                    load_kind,
+                    &loader_shared,
+                    || qodercli::load_entries(&loader_shared),
+                    qodercli::summarize_entries,
+                )?;
+                rows.detected = rows.detected || qodercli::has_data();
                 Ok(rows)
             }),
         },
@@ -904,6 +920,46 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].date.as_deref(), Some("2026-01-02"));
         assert_eq!(rows[0].input_tokens, 20);
+    }
+
+    #[test]
+    fn unified_daily_report_includes_qodercli_usage() {
+        let fixture = fs_fixture!({
+            "projects/project-a/session-a.jsonl": concat!(
+                r#"{"type":"system","subtype":"init","session_id":"raw-session","model":"qwen3-coder-plus"}"#,
+                "\n",
+                r#"{"type":"assistant","uuid":"assistant-a","session_id":"raw-session","timestamp":"2026-08-26T12:34:56.000Z","message":{"usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":10,"cache_read_input_tokens":20}}}"#,
+                "\n"
+            ),
+        });
+        let _qoder_config_dir = EnvVarGuard::set("QODER_CONFIG_DIR", fixture.root());
+        let shared = SharedArgs {
+            mode: crate::cli::CostMode::Display,
+            timezone: Some("UTC".to_string()),
+            ..SharedArgs::default()
+        };
+
+        let result = load_rows(AgentReportKind::Daily, &shared).unwrap();
+        let row = result
+            .rows
+            .iter()
+            .find(|row| {
+                row.metadata_agents
+                    .as_ref()
+                    .is_some_and(|agents| agents.contains(&"qodercli"))
+            })
+            .expect("unified report should include qodercli");
+        let qodercli = row
+            .agent_breakdowns
+            .as_ref()
+            .and_then(|rows| rows.iter().find(|row| row.agent == "qodercli"))
+            .expect("qodercli breakdown should be present");
+
+        assert!(result.detected_agents.contains(&"qodercli"));
+        assert_eq!(qodercli.input_tokens, 100);
+        assert_eq!(qodercli.output_tokens, 50);
+        assert_eq!(qodercli.cache_creation_tokens, 10);
+        assert_eq!(qodercli.cache_read_tokens, 20);
     }
 
     #[test]
